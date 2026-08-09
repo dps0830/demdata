@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Democrat Detector</title>
+<link rel="icon" type="image/png" href="https://lh3.googleusercontent.com/d/1KlSuCf2eyxJCY2Yij0zqYIk-uW6El8JZ">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'media',
+    theme: {
+      extend: {
+        fontFamily: {
+          mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+          sans: ['"IBM Plex Sans"', 'ui-sans-serif', 'system-ui'],
+        },
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  /* Ballot-punch signature motif */
+  .punch-grid {
+    background-image: radial-gradient(currentColor 1px, transparent 1px);
+    background-size: 14px 14px;
+  }
+  input[type="text"]::-webkit-outer-spin-button,
+  input[type="text"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+</style>
+</head>
+
+<body class="min-h-screen bg-sky-50 dark:bg-sky-950 text-sky-900 dark:text-sky-100 font-sans transition-colors duration-300">
+
+  <div class="min-h-screen flex flex-col items-center justify-center px-6 py-16">
+
+    <div class="w-full max-w-md">
+
+      <h1 class="font-mono font-bold text-3xl sm:text-4xl leading-tight tracking-tight mb-2">
+        Democrat Detector
+      </h1>
+      <p class="text-sm text-sky-900/60 dark:text-sky-100/60 mb-10 leading-relaxed">
+        Enter a 5&#8209;digit ZIP code. For North Carolina, we pull real party registration counts straight from the NC State Board of Elections. For everywhere else (no state runs a national database), we estimate from Census Bureau demographics instead.
+      </p>
+
+      <!-- Input row -->
+      <form id="zip-form" class="flex flex-col gap-3" autocomplete="off">
+        <label for="zip" class="sr-only">ZIP code</label>
+        <div class="flex items-stretch gap-3">
+          <input
+            id="zip"
+            name="zip"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="5"
+            minlength="5"
+            placeholder="27601"
+            aria-describedby="zip-error"
+            class="flex-1 min-w-0 font-mono text-2xl tracking-[0.3em] text-center bg-white dark:bg-sky-900 border-2 border-sky-900/15 dark:border-sky-100/15 rounded-lg px-4 py-3 outline-none focus:border-sky-900 dark:focus:border-sky-100 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-900 dark:focus-visible:ring-sky-100 dark:ring-offset-sky-950 transition-colors placeholder:text-sky-900/20 dark:placeholder:text-sky-100/20"
+          >
+        </div>
+        <p id="zip-error" class="text-xs font-mono text-red-600 dark:text-red-400 h-4" role="alert"></p>
+
+        <button
+          id="search-btn"
+          type="submit"
+          class="group relative overflow-hidden rounded-lg bg-sky-900 dark:bg-sky-100 text-sky-50 dark:text-sky-950 font-mono font-semibold text-sm tracking-wide uppercase py-3.5 transition-transform active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+          disabled
+        >
+          <span id="search-btn-label">Search</span>
+        </button>
+        <p id="search-timer" class="text-xs font-mono text-center text-sky-900/40 dark:text-sky-100/40 h-4"></p>
+      </form>
+
+      <!-- Result card -->
+      <div id="result" class="mt-8 hidden">
+        <div id="result-card" class="rounded-xl border-2 p-6 flex items-start gap-4 transition-colors">
+          <div id="result-icon" class="shrink-0 mt-0.5 h-9 flex items-center justify-center"></div>
+          <div class="min-w-0">
+            <p class="text-xs font-mono uppercase tracking-widest opacity-60 mb-1">Result &mdash; ZIP <span id="result-zip"></span></p>
+            <p id="result-text" class="text-lg leading-snug font-medium"></p>
+            <p id="result-disclaimer" class="text-xs font-mono opacity-50 mt-3 leading-relaxed"></p>
+            <details id="result-detail" class="mt-3 text-xs font-mono opacity-70">
+              <summary class="cursor-pointer select-none hover:opacity-100">Show underlying figures</summary>
+              <dl id="result-stats" class="mt-2 space-y-1"></dl>
+            </details>
+            <button
+              id="download-btn"
+              type="button"
+              class="mt-4 inline-flex items-center gap-2 rounded-md border border-sky-900/20 dark:border-sky-100/20 px-3 py-1.5 text-xs font-mono uppercase tracking-wide hover:bg-sky-900/5 dark:hover:bg-sky-100/10 transition-colors"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download Data as a TXT File
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status / error -->
+      <p id="status" class="mt-6 text-sm font-mono text-sky-900/50 dark:text-sky-100/50 hidden"></p>
+
+    </div>
+
+    <div class="punch-grid fixed inset-0 -z-10 opacity-[0.03] pointer-events-none"></div>
+  </div>
+
+<script>
+/* ============================================================
+   CONFIGURATION — TWO real government data sources are used.
+
+   TIER 1 — North Carolina: REAL party registration data.
+   Pipeline: HUD USPS ZIP↔County Crosswalk API (finds which county
+   your ZIP is in) → NC State Board of Elections' official weekly
+   voter registration file for that county (actual registered-voter
+   party counts, downloaded and tallied live in your browser).
+
+     Get a free HUD token: https://www.huduser.gov/hudapi/public/login
+   Paste it below. Without it, NC ZIPs fall back to the Census
+   estimate same as every other state.
+
+   TIER 2 — everywhere else: Census Bureau demographic ESTIMATE.
+   No U.S. state besides the ones that register voters by party
+   even has "majority party" data, and there's no federal database
+   of it at all. For any ZIP outside NC (or if the HUD token isn't
+   set), this tool falls back to the same disclosed demographic
+   scoring model as before — income, education, age from the ACS,
+   NOT real registration data. That fallback is labeled as such
+   in the result every time it's used.
+   ============================================================ */
+const HUD_API_TOKEN  = ""; // paste your free HUD USER bearer token here
+
+const CENSUS_API_KEY = "f73c5f3785d78f0ce0842636829807be76c9871e"; // optional — paste a free key here if you have one
+const ACS_YEAR        = "2023";
+const ACS_BASE         = `https://api.census.gov/data/${ACS_YEAR}/acs/acs5`;
+
+// ACS variables pulled per ZCTA
+const ACS_VARS = [
+  "B19013_001E", // median household income
+  "B01002_001E", // median age
+  "B15003_001E", // population 25+ (denominator for education)
+  "B15003_022E", // bachelor's degree
+  "B15003_023E", // master's degree
+  "B15003_024E", // professional degree
+  "B15003_025E", // doctorate degree
+];
+
+// Rough national reference points (used to center/scale each signal).
+// These are approximate and only set the "average" the ZIP is compared against.
+const NATIONAL_REFERENCE = {
+  income: 75000,      // median household income, USD
+  bachelorsPct: 35,   // % of adults 25+ with a bachelor's degree or higher
+  medianAge: 39,       // years
+};
+
+// How much each signal pulls the estimate toward Democrat (+) or Republican (-).
+// Based on broadly reported aggregate patterns in recent U.S. elections —
+// higher education and younger median age have trended more Democratic;
+// higher income areas have trended more Democratic in recent cycles too.
+// These are coarse national-level generalizations with plenty of exceptions.
+const WEIGHTS = {
+  bachelorsPct: 0.5,
+  income: 0.3,
+  medianAge: -0.2,
+};
+
+// NCSBE numbers its 100 county voter-registration files 1–100 in strict
+// alphabetical order by county name (ncvoter1.zip = Alamance ... ncvoter100.zip
+// = Yancey). NC's county FIPS codes are ALSO assigned alphabetically, in steps
+// of 2 (Alamance = 001, Alexander = 003, ... Yancey = 199) — so the NCSBE file
+// number can be derived directly from the FIPS code with no lookup table:
+function fipsToNcsbeFileNumber(countyFips3digit) {
+  return Math.round((countyFips3digit - 1) / 2) + 1;
+}
+
+const form       = document.getElementById('zip-form');
+const zipInput   = document.getElementById('zip');
+const zipError   = document.getElementById('zip-error');
+const btn        = document.getElementById('search-btn');
+const btnLabel   = document.getElementById('search-btn-label');
+const resultBox  = document.getElementById('result');
+const resultCard = document.getElementById('result-card');
+const resultText = document.getElementById('result-text');
+const resultZip  = document.getElementById('result-zip');
+const resultIcon = document.getElementById('result-icon');
+const resultStats= document.getElementById('result-stats');
+const statusEl   = document.getElementById('status');
+const timerEl    = document.getElementById('search-timer');
+
+let isSearching = false;
+
+function updateButtonState() {
+  btn.disabled = isSearching || zipInput.value.length !== 5;
+}
+
+// Only allow digits 0-9, hard cap at 5 characters. Button stays disabled
+// until exactly 5 digits are entered.
+zipInput.addEventListener('input', () => {
+  zipInput.value = zipInput.value.replace(/[^0-9]/g, '').slice(0, 5);
+  zipError.textContent = '';
+  updateButtonState();
+});
+
+function setStatus(msg) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle('hidden', !msg);
+}
+
+function setLoading(isLoading) {
+  isSearching = isLoading;
+  updateButtonState();
+  btnLabel.textContent = isLoading ? 'Searching…' : 'Search';
+}
+
+const PARTY_STYLES = {
+  Democrat: {
+    text: 'text-blue-600 dark:text-blue-400',
+    card: 'border-blue-600/30 dark:border-blue-400/30 bg-blue-600/5 dark:bg-blue-400/5 text-blue-700 dark:text-blue-300',
+    logo: 'https://lh3.googleusercontent.com/d/1dyTZj4KAbKO3la6u5-b8yr7BQeA4LRIP',
+  },
+  Republican: {
+    text: 'text-red-600 dark:text-red-400',
+    card: 'border-red-600/30 dark:border-red-400/30 bg-red-600/5 dark:bg-red-400/5 text-red-700 dark:text-red-300',
+    logo: 'https://lh3.googleusercontent.com/d/1z-8REmAWH1DBJCwp0rN5i6FKOHghtmEz',
+  },
+  Other: {
+    text: 'text-gray-500 dark:text-gray-400',
+    card: 'border-gray-500/30 dark:border-gray-400/30 bg-gray-500/5 dark:bg-gray-400/5 text-gray-600 dark:text-gray-300',
+    logo: null, // shown as "?" instead
+  },
+};
+
+function formatElapsed(ms) {
+  const roundedSeconds = Math.max(1, Math.ceil(ms / 1000)); // round UP to nearest whole second
+  const label = roundedSeconds === 1 ? 'Second' : 'Seconds';
+  return `Searched for ${roundedSeconds} ${label}`;
+}
+
+// Wraps fetch() so that network-level failures (which is what CORS blocks
+// show up as — browsers deliberately hide the real reason from JS) get
+// labeled with which service failed, instead of a bare "Load failed"/
+// "Failed to fetch" that gives no clue where to even start debugging.
+async function fetchWithContext(url, options, label) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (err) {
+    throw new Error(
+      `${label} could not be reached. This usually means either (a) you're offline, ` +
+      `(b) that service is blocking cross-origin browser requests (CORS), or (c) an ` +
+      `ad blocker/extension is interfering. Raw error: "${err.message}".`
+    );
+  }
+  return res;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const zip = zipInput.value;
+
+  if (zip.length !== 5) {
+    zipError.textContent = 'Enter exactly 5 digits (0-9 only).';
+    return;
+  }
+
+  resultBox.classList.add('hidden');
+  timerEl.textContent = '';
+  setLoading(true);
+  const startTime = performance.now();
+
+  try {
+    const result = await lookupZip(zip, setStatus);
+    renderResult(zip, result);
+    setStatus('');
+  } catch (err) {
+    console.error(err);
+    setStatus('Lookup failed: ' + err.message);
+  } finally {
+    setLoading(false);
+    timerEl.textContent = formatElapsed(performance.now() - startTime);
+  }
+});
+
+/* ============================================================
+   TIER 1: North Carolina — real registration data pipeline
+   ============================================================ */
+
+async function resolveCountyFips(zip) {
+  const url = `https://www.huduser.gov/hudapi/public/usps?type=2&query=${zip}`;
+  const res = await fetchWithContext(url, {
+    headers: { Authorization: `Bearer ${HUD_API_TOKEN}` },
+  }, 'HUD USPS Crosswalk API');
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`HUD crosswalk lookup failed (HTTP ${res.status}). ${body}`.trim());
+  }
+  const json = await res.json();
+  const results = json?.data?.results || [];
+  if (results.length === 0) return null;
+
+  // A ZIP can span multiple counties — pick the one with the largest
+  // share of residential addresses.
+  results.sort((a, b) => (b.res_ratio || 0) - (a.res_ratio || 0));
+  const geoid = results[0].geoid; // 5-digit state+county FIPS
+  return {
+    stateFips: geoid.slice(0, 2),
+    countyFips3: parseInt(geoid.slice(2), 10),
+  };
+}
+
+async function fetchNcsbeCountyFile(fileNumber, onProgress) {
+  const url = `https://s3.amazonaws.com/dl.ncsbe.gov/data/ncvoter${fileNumber}.zip`;
+  const res = await fetchWithContext(url, undefined, 'NC State Board of Elections file server');
+  if (!res.ok) {
+    throw new Error(`Could not download NCSBE county file (HTTP ${res.status}).`);
+  }
+  const buffer = await res.arrayBuffer();
+  const zip = await JSZip.loadAsync(buffer);
+  const entryName = Object.keys(zip.files).find(n => /\.txt$/i.test(n));
+  if (!entryName) throw new Error('Unexpected NCSBE file format (no .txt entry found in zip).');
+  return zip.files[entryName].async('string');
+}
+
+function tallyNcVoterFile(text, zip) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length === 0 || !lines[0]) throw new Error('Empty NCSBE voter file.');
+
+  const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
+  const zipIdx    = headers.indexOf('zip_code');
+  const partyIdx  = headers.indexOf('party_cd');
+  const statusIdx = headers.indexOf('voter_status_desc');
+  if (zipIdx === -1 || partyIdx === -1 || statusIdx === -1) {
+    throw new Error('Unexpected NCSBE file layout (expected columns not found).');
+  }
+
+  const counts = { Democrat: 0, Republican: 0, Other: 0 };
+  const countableStatuses = new Set(['ACTIVE', 'INACTIVE', 'TEMPORARY']);
+  let matched = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    const cols = line.split('\t');
+    const rowZip = (cols[zipIdx] || '').trim().slice(0, 5);
+    if (rowZip !== zip) continue;
+    const status = (cols[statusIdx] || '').trim().toUpperCase();
+    if (!countableStatuses.has(status)) continue;
+
+    matched++;
+    const party = (cols[partyIdx] || '').trim().toUpperCase();
+    if (party === 'DEM') counts.Democrat++;
+    else if (party === 'REP') counts.Republican++;
+    else counts.Other++; // UNA, LIB, GRE, CST, NLB, etc.
+  }
+
+  return { counts, matched };
+}
+
+async function tryNorthCarolina(zip, setStatus) {
+  if (!HUD_API_TOKEN) return null; // no token configured — skip straight to fallback
+
+  setStatus('Resolving county via HUD USPS ZIP crosswalk…');
+  const fips = await resolveCountyFips(zip);
+  if (!fips || fips.stateFips !== '37') return null; // not North Carolina
+
+  const fileNumber = fipsToNcsbeFileNumber(fips.countyFips3);
+  setStatus(`Downloading NC State Board of Elections county file (#${fileNumber})…`);
+  const text = await fetchNcsbeCountyFile(fileNumber, setStatus);
+
+  setStatus('Tallying real registration records for this ZIP…');
+  const { counts, matched } = tallyNcVoterFile(text, zip);
+
+  if (matched === 0) {
+    return null; // no registered voters found under this ZIP — fall back
+  }
+
+  let party = 'Other';
+  if (counts.Democrat > counts.Republican && counts.Democrat > counts.Other) party = 'Democrat';
+  else if (counts.Republican > counts.Democrat && counts.Republican > counts.Other) party = 'Republican';
+
+  return {
+    party,
+    source: 'ncsbe',
+    matched,
+    counts,
+  };
+}
+
+/* ============================================================
+   TIER 2: Census Bureau demographic ESTIMATE (all other ZIPs)
+   ============================================================ */
+
+async function fetchZctaStats(zip) {
+  const url = new URL(ACS_BASE);
+  url.searchParams.set('get', ['NAME', ...ACS_VARS].join(','));
+  url.searchParams.set('for', `zip code tabulation area:${zip}`);
+  if (CENSUS_API_KEY) url.searchParams.set('key', CENSUS_API_KEY);
+
+  const res = await fetchWithContext(url.toString(), undefined, 'Census Bureau ACS API');
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(body || `HTTP ${res.status}`);
+  }
+
+  const rows = await res.json();
+  // API returns [ [headers...], [values...] ]. A ZIP with no ZCTA match
+  // (e.g. a PO-box-only ZIP) returns just the header row.
+  if (!Array.isArray(rows) || rows.length < 2) {
+    throw new Error(`No Census data found for ZIP ${zip} (it may not have a matching ZCTA).`);
+  }
+
+  const headers = rows[0];
+  const values = rows[1];
+  const row = {};
+  headers.forEach((h, i) => { row[h] = values[i]; });
+
+  const income   = Number(row.B19013_001E);
+  const medianAge = Number(row.B01002_001E);
+  const pop25plus = Number(row.B15003_001E);
+  const bachelorsPlus =
+    Number(row.B15003_022E) + Number(row.B15003_023E) +
+    Number(row.B15003_024E) + Number(row.B15003_025E);
+  const bachelorsPct = pop25plus > 0 ? (bachelorsPlus / pop25plus) * 100 : NaN;
+
+  // Census marks unavailable/suppressed cells with large negative sentinel codes.
+  const clean = (n) => (Number.isFinite(n) && n > -1e8) ? n : null;
+
+  return {
+    income: clean(income),
+    medianAge: clean(medianAge),
+    bachelorsPct: Number.isFinite(bachelorsPct) ? bachelorsPct : null,
+  };
+}
+
+function scoreToParty(score) {
+  if (score > 0.15) return 'Democrat';
+  if (score < -0.15) return 'Republican';
+  return 'Other';
+}
+
+async function censusEstimate(zip, setStatus) {
+  setStatus('Fetching Census Bureau ACS data…');
+  const stats = await fetchZctaStats(zip);
+
+  if (stats.income == null && stats.medianAge == null && stats.bachelorsPct == null) {
+    return { party: 'Other', source: 'census', stats };
+  }
+
+  // Normalize each available signal against the national reference point,
+  // then combine using the disclosed weights above.
+  let score = 0;
+  if (stats.bachelorsPct != null) {
+    score += WEIGHTS.bachelorsPct * ((stats.bachelorsPct - NATIONAL_REFERENCE.bachelorsPct) / NATIONAL_REFERENCE.bachelorsPct);
+  }
+  if (stats.income != null) {
+    score += WEIGHTS.income * ((stats.income - NATIONAL_REFERENCE.income) / NATIONAL_REFERENCE.income);
+  }
+  if (stats.medianAge != null) {
+    score += WEIGHTS.medianAge * ((stats.medianAge - NATIONAL_REFERENCE.medianAge) / NATIONAL_REFERENCE.medianAge);
+  }
+
+  return { party: scoreToParty(score), source: 'census', stats };
+}
+
+async function lookupZip(zip, setStatus) {
+  try {
+    const ncResult = await tryNorthCarolina(zip, setStatus);
+    if (ncResult) return ncResult;
+  } catch (err) {
+    console.warn('NC real-data pipeline failed, falling back to Census estimate:', err);
+  }
+  return censusEstimate(zip, setStatus);
+}
+
+const resultDisclaimer = document.getElementById('result-disclaimer');
+const downloadBtn = document.getElementById('download-btn');
+let lastResult = null; // holds { zip, result } for the download button
+
+function renderResult(zip, result) {
+  const { party } = result;
+  const style = PARTY_STYLES[party] || PARTY_STYLES.Other;
+
+  resultZip.textContent = zip;
+  resultText.innerHTML = `The majority of the population in this ZIP is a <span class="font-bold ${style.text}">${party}</span>`;
+
+  resultCard.className = `rounded-xl border-2 p-6 flex items-start gap-4 transition-colors ${style.card}`;
+
+  if (style.logo) {
+    resultIcon.innerHTML = `<img src="${style.logo}" alt="${party} party logo" class="h-full w-auto max-w-none object-contain" />`;
+  } else {
+    resultIcon.innerHTML = `<span class="text-lg font-bold leading-none">?</span>`;
+  }
+
+  if (result.source === 'ncsbe') {
+    resultDisclaimer.innerHTML = `Real data: tallied live from the NC State Board of Elections' official weekly voter registration file (${result.matched.toLocaleString()} active/inactive/temporary registered voters found in this ZIP).`;
+    resultStats.innerHTML = `
+      <div class="flex justify-between gap-4"><dt>Democrat</dt><dd>${result.counts.Democrat.toLocaleString()}</dd></div>
+      <div class="flex justify-between gap-4"><dt>Republican</dt><dd>${result.counts.Republican.toLocaleString()}</dd></div>
+      <div class="flex justify-between gap-4"><dt>Other (Unaffiliated, etc.)</dt><dd>${result.counts.Other.toLocaleString()}</dd></div>
+      <div class="flex justify-between gap-4 opacity-60"><dt>Source</dt><dd>NCSBE, current file</dd></div>
+    `;
+  } else {
+    const stats = result.stats;
+    resultDisclaimer.textContent = 'Estimate only: Census Bureau demographics (income, education, age). The Census Bureau does not collect party affiliation, and no national database of it exists — this is a statistical proxy, not real registration data.';
+    resultStats.innerHTML = `
+      <div class="flex justify-between gap-4"><dt>Median household income</dt><dd>${stats.income != null ? '$' + stats.income.toLocaleString() : 'n/a'}</dd></div>
+      <div class="flex justify-between gap-4"><dt>Bachelor's degree+ (25&#43;)</dt><dd>${stats.bachelorsPct != null ? stats.bachelorsPct.toFixed(1) + '%' : 'n/a'}</dd></div>
+      <div class="flex justify-between gap-4"><dt>Median age</dt><dd>${stats.medianAge != null ? stats.medianAge.toFixed(1) : 'n/a'}</dd></div>
+      <div class="flex justify-between gap-4 opacity-60"><dt>Source</dt><dd>ACS 5-Year ${ACS_YEAR}</dd></div>
+    `;
+  }
+
+  resultBox.classList.remove('hidden');
+  lastResult = { zip, result };
+}
+
+function buildDownloadText(zip, result) {
+  const lines = [];
+  lines.push('DEMOCRAT DETECTOR — RESULT EXPORT');
+  lines.push('='.repeat(40));
+  lines.push(`ZIP code:       ${zip}`);
+  lines.push(`Generated:      ${new Date().toString()}`);
+  lines.push(`Majority party: ${result.party}`);
+  lines.push('');
+
+  if (result.source === 'ncsbe') {
+    lines.push('DATA SOURCE: NC State Board of Elections (real registration data)');
+    lines.push('-'.repeat(40));
+    lines.push(`Registered voters found in this ZIP: ${result.matched.toLocaleString()}`);
+    lines.push(`  Democrat:                ${result.counts.Democrat.toLocaleString()}`);
+    lines.push(`  Republican:              ${result.counts.Republican.toLocaleString()}`);
+    lines.push(`  Other (Unaffiliated etc.): ${result.counts.Other.toLocaleString()}`);
+    lines.push('');
+    lines.push('Note: tallied live from NCSBE\'s official weekly voter registration file.');
+  } else {
+    const s = result.stats;
+    lines.push('DATA SOURCE: U.S. Census Bureau ACS 5-Year Estimates (demographic ESTIMATE)');
+    lines.push('-'.repeat(40));
+    lines.push(`Median household income:   ${s.income != null ? '$' + s.income.toLocaleString() : 'n/a'}`);
+    lines.push(`Bachelor's degree+ (25+):  ${s.bachelorsPct != null ? s.bachelorsPct.toFixed(1) + '%' : 'n/a'}`);
+    lines.push(`Median age:                ${s.medianAge != null ? s.medianAge.toFixed(1) : 'n/a'}`);
+    lines.push(`ACS vintage:               ${ACS_YEAR} 5-Year`);
+    lines.push('');
+    lines.push('IMPORTANT: The Census Bureau does not collect political party affiliation.');
+    lines.push('This is a statistical proxy derived from demographics, NOT real registration data.');
+  }
+
+  return lines.join('\n');
+}
+
+downloadBtn.addEventListener('click', () => {
+  if (!lastResult) return;
+  const { zip, result } = lastResult;
+  const text = buildDownloadText(zip, result);
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `democrat-detector-zip-${zip}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
